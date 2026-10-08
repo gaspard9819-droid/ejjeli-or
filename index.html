@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#0b0f14">
+<title>Éjjeli Őr</title>
+<style>
+  /* Egyetlen sötét téma: sötét recepción használják, a képernyő nem vakíthat. */
+  :root {
+    --bg: #0b0f14;
+    --panel: #141b23;
+    --line: #243040;
+    --fg: #d9e2ea;
+    --muted: #7d8a97;
+    --accent: #f2b33d;
+    --danger: #ff4d4d;
+    --ok: #4cc38a;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--sans); }
+  body {
+    padding-inline: 16px;
+    padding-block: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 24px);
+    max-width: 760px; margin-inline: auto;
+    -webkit-user-select: none; user-select: none;
+  }
+  [hidden] { display: none !important; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 4px 12px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  .pill { font: 600 12px/1 var(--mono); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .pill.on { color: var(--ok); border-color: var(--ok); }
+  .pill.warn { color: var(--accent); border-color: var(--accent); }
+  .pill.alarm { color: var(--bg); background: var(--danger); border-color: var(--danger); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .stack { display: flex; flex-direction: column; gap: 14px; }
+  ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  button { font: 600 15px/1 var(--sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 13px 14px; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .45; }
+  button.primary { background: var(--accent); color: #1a1204; border-color: var(--accent); }
+  button.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  button.active { border-color: var(--accent); color: var(--accent); }
+  .big { width: 100%; padding: 18px; font-size: 17px; }
+  .toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+
+  .stage { position: relative; width: 100%; border-radius: 8px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+  video { display: block; width: 100%; height: auto; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
+  #overlay.drawing { pointer-events: auto; cursor: crosshair; }
+  .hint { font-size: 13px; color: var(--accent); min-height: 1.2em; }
+
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .row label { flex: 1; min-width: 0; }
+  .row output { font: 600 14px var(--mono); color: var(--accent); min-width: 4ch; text-align: right; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  details summary { cursor: pointer; font-weight: 600; }
+  details[open] summary { margin-bottom: 12px; }
+
+  .banner { border: 1px solid var(--accent); color: var(--accent); background: rgba(242,179,61,.08); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  .error { border-color: var(--danger); color: var(--danger); background: rgba(255,77,77,.08); }
+
+  #log { display: flex; flex-direction: column; gap: 8px; }
+  .entry { display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: center; }
+  .entry img { width: 72px; height: 54px; object-fit: cover; border-radius: 4px; background: #000; }
+  .entry .t { font: 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .entry.false .what { text-decoration: line-through; color: var(--muted); }
+
+  #alarm { position: fixed; inset: 0; z-index: 20; background: var(--danger); color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 16px;
+    padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px calc(env(safe-area-inset-bottom, 0px) + 20px); animation: flash 1s steps(2) infinite; }
+  #alarm h3 { font-size: 30px; margin: 0; text-align: center; line-height: 1.15; }
+  #alarm img { width: 100%; max-height: 45vh; object-fit: contain; background: #000; border-radius: 8px; }
+  #alarm button { background: #fff; color: #000; border: 0; }
+  #alarm button.ghost { background: transparent; color: #fff; border: 1px solid #fff; }
+  @keyframes flash { 50% { background: #8a0000; } }
+  @media (prefers-reduced-motion: reduce) { #alarm { animation: none; } }
+
+  #dim { position: fixed; inset: 0; z-index: 10; background: #000; color: #3a4552; display: flex; align-items: flex-end; justify-content: center;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); font: 13px var(--mono); text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Éjjeli Őr</h1>
+  <span id="status" class="pill">Kikapcsolva</span>
+</header>
+
+<!-- Kezdőképernyő -->
+<section id="intro" class="stack">
+  <div class="card stack">
+    <h2>Mielőtt elindítod</h2>
+    <ol>
+      <li>Tedd a telefont <b>töltőre</b>, és rögzítsd úgy, hogy a hátlapi kamera a monitort lássa.</li>
+      <li>Kapcsold ki a <b>némító kapcsolót</b>, és vedd a hangerőt <b>maximumra</b>.</li>
+      <li>Beállítások → Kijelző és fényerő → Automatikus zárolás → <b>Soha</b>.</li>
+      <li>Ne válts át más appra, és ne zárd le a telefont: ilyenkor az iPhone leállítja a kamerát, és az app <b>nem figyel</b>.</li>
+      <li>Ajánlott: <b>Irányított hozzáférés</b> (Beállítások → Kisegítő lehetőségek). Ez a Safarit előtérben tartja.</li>
+    </ol>
+  </div>
+  <button id="startBtn" class="primary big">Kamera indítása</button>
+  <div id="startErr" class="banner error" hidden></div>
+</section>
+
+<!-- Fő nézet -->
+<main id="app" class="stack" hidden>
+  <div id="bgBanner" class="banner" hidden></div>
+  <div id="modelBanner" class="banner" hidden></div>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div class="hint" id="hint"></div>
+
+  <div class="toolbar">
+    <button id="armBtn" class="primary" disabled>Őrzés indítása</button>
+    <button id="drawBtn">Zóna rajzolása</button>
+    <button id="clearBtn">Zónák törlése</button>
+    <button id="testBtn">Hangteszt</button>
+    <button id="dimBtn">Sötét kijelző</button>
+  </div>
+
+  <details class="card">
+    <summary>Érzékenység</summary>
+    <div class="stack">
+      <div class="row"><label for="thr">Minimális biztonság<br><span class="muted small">Lejjebb: többet észrevesz, de többször tévesen riaszt</span></label><output id="thrOut"></output></div>
+      <input type="range" id="thr" min="0.2" max="0.8" step="0.05">
+      <div class="row"><label for="hits">Egymás utáni találat riasztásig<br><span class="muted small">2 = két egymást követő ellenőrzésen is embert kell látnia</span></label><output id="hitsOut"></output></div>
+      <input type="range" id="hits" min="1" max="5" step="1">
+      <div class="row"><label for="intv">Ellenőrzés gyakorisága</label><output id="intvOut"></output></div>
+      <input type="range" id="intv" min="500" max="3000" step="250">
+      <div class="row"><label for="pause">Szünet leállítás után</label><output id="pauseOut"></output></div>
+      <input type="range" id="pause" min="10" max="300" step="10">
+    </div>
+  </details>
+
+  <section class="card">
+    <div class="row"><h2>Napló</h2><span class="muted small" id="lastCheck"></span></div>
+    <div id="log"><p class="muted small" id="logEmpty">Még nem volt riasztás. Ha lesz, itt látod a pillanatképet, és megjelölheted, ha téves volt.</p></div>
+  </section>
+</main>
+
+<div id="alarm" hidden>
+  <h3 id="alarmTitle">Ember a zónában</h3>
+  <img id="alarmImg" alt="Pillanatkép a riasztás idején">
+  <button id="stopBtn" class="big">Felébredtem, leállítás</button>
+  <button id="falseBtn" class="ghost">Téves riasztás volt</button>
+</div>
+
+<div id="dim" hidden><div id="dimText">Őrzés aktív · érintsd meg a visszatéréshez</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const video = $('video'), overlay = $('overlay'), octx = overlay.getContext('2d');
+
+  // ---------- tárolás (csak ezen a telefonon) ----------
+  const load = (k, d) => { try { const v = localStorage.getItem('eo_' + k); return v ? JSON.parse(v) : d; } catch { return d; } };
+  const save = (k, v) => { try { localStorage.setItem('eo_' + k, JSON.stringify(v)); } catch {} };
+
+  const S = {
+    zones: load('zones', []),          // [{x,y,w,h}] a videókép arányában (0..1)
+    thr: load('thr', 0.45),
+    hits: load('hits', 2),
+    intv: load('intv', 1000),
+    pause: load('pause', 60),
+  };
+  let log = load('log', []);
+
+  let model = null, armed = false, drawMode = false, draft = null;
+  let streak = [0, 0], lastBoxes = [[], []];
+  let alarmOn = false, alarmKind = null, pauseUntil = 0, wakeLock = null;
+  let lastVideoTime = -1, staleSince = 0, blankSince = 0, hiddenAt = 0;
+
+  // ---------- hang ----------
+  // HTML <audio> elemmel szól, mert az iOS-en a némító kapcsoló mellett is lejátszik.
+  function makeWav(fn, secs, rate = 22050) {
+    const n = Math.floor(secs * rate), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, n * 2, true);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const { f, a } = fn(i / rate);
+      ph += 2 * Math.PI * f / rate;
+      const s = (Math.sign(Math.sin(ph)) * 0.55 + Math.sin(ph) * 0.4) * a;
+      v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, s)) * 32767, true);
+    }
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  const sirenUrl = makeWav(t => ({ f: 700 + 900 * (t < 0.5 ? t * 2 : (1 - t) * 2), a: 1 }), 1);
+  const faultUrl = makeWav(t => ({ f: (t % 0.5) < 0.12 ? 520 : 390, a: (t % 0.5) < 0.3 ? 1 : 0 }), 1);
+  const siren = new Audio(sirenUrl); siren.loop = true;
+  const fault = new Audio(faultUrl); fault.loop = true;
+
+  function unlockAudio() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+    for (const el of [siren, fault]) {
+      el.muted = true;
+      const p = el.play();
+      if (p) p.then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; });
+    }
+  }
+  function playSound(el) { stopSound(); el.currentTime = 0; el.muted = false; el.play().catch(() => {}); }
+  function stopSound() { for (const el of [siren, fault]) { el.pause(); el.currentTime = 0; } }
+
+  // ---------- képernyő ébren tartása ----------
+  async function requestWake() {
+    try { if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); } } catch {}
+  }
+
+  // ---------- állapot ----------
+  function setStatus() {
+    const el = $('status');
+    el.className = 'pill';
+    if (alarmOn) { el.textContent = 'Riaszt'; el.classList.add('alarm'); }
+    else if (!armed) { el.textContent = model ? 'Kikapcsolva' : 'Betöltés…'; }
+    else if (Date.now() < pauseUntil) { el.textContent = 'Szünet'; el.classList.add('warn'); }
+    else { el.textContent = 'Figyel'; el.classList.add('on'); }
+    $('armBtn').textContent = armed ? 'Őrzés leállítása' : 'Őrzés indítása';
+    $('armBtn').className = armed ? 'active' : 'primary';
+    $('armBtn').disabled = !model || !S.zones.length;
+    $('drawBtn').disabled = S.zones.length >= 2 && !drawMode;
+    $('drawBtn').classList.toggle('active', drawMode);
+    const hint = $('hint');
+    if (drawMode) hint.textContent = `Húzz egy téglalapot az ujjaddal a(z) ${S.zones.length + 1}. kritikus kamerakép köré.`;
+    else if (!S.zones.length) hint.textContent = 'Jelöld ki az 1–2 kritikus kamerakép helyét: „Zóna rajzolása”.';
+    else hint.textContent = '';
+  }
+
+  // ---------- indítás ----------
+  $('startBtn').addEventListener('click', async () => {
+    unlockAudio();
+    const btn = $('startBtn'); btn.disabled = true; btn.textContent = 'Indítás…';
+    const err = $('startErr'); err.hidden = true;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      err.textContent = 'Ez a böngésző nem ad kamerát. Nyisd meg Safariban, https:// címről.';
+      err.hidden = false; btn.disabled = false; btn.textContent = 'Kamera indítása'; return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false
+      });
+      video.srcObject = stream;
+      await video.play();
+    } catch (e) {
+      err.textContent = 'Nem kaptam kamera-hozzáférést. Beállítások → Safari → Kamera → Engedélyezés, majd töltsd újra az oldalt.';
+      err.hidden = false; btn.disabled = false; btn.textContent = 'Kamera indítása'; return;
+    }
+    $('intro').hidden = true; $('app').hidden = false;
+    requestWake();
+    resizeOverlay(); setStatus(); renderLog();
+    const mb = $('modelBanner'); mb.textContent = 'Felismerő modell betöltése… (első alkalommal kb. 10–30 mp)'; mb.hidden = false;
+    try {
+      await tf.ready();
+      model = await cocoSsd.load({ base: 'mobilenet_v2' });
+      mb.hidden = true;
+    } catch (e) {
+      mb.textContent = 'A felismerő modellt nem sikerült letölteni. Ellenőrizd a netet, és töltsd újra az oldalt.';
+      mb.classList.add('error');
+    }
+    setStatus();
+    loop();
+  });
+
+  // ---------- zónák rajzolása ----------
+  function resizeOverlay() {
+    const r = overlay.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    overlay.width = Math.round(r.width * dpr); overlay.height = Math.round(r.height * dpr);
+    drawOverlay();
+  }
+  window.addEventListener('resize', resizeOverlay);
+  video.addEventListener('loadedmetadata', resizeOverlay);
+
+  function drawOverlay() {
+    const W = overlay.width, H = overlay.height, dpr = window.devicePixelRatio || 1;
+    octx.clearRect(0, 0, W, H);
+    octx.lineWidth = 2 * dpr; octx.font = `600 ${14 * dpr}px system-ui, sans-serif`;
+    S.zones.forEach((z, i) => {
+      octx.strokeStyle = '#f2b33d'; octx.setLineDash([]);
+      octx.strokeRect(z.x * W, z.y * H, z.w * W, z.h * H);
+      octx.fillStyle = '#f2b33d'; octx.fillRect(z.x * W, z.y * H, 22 * dpr, 22 * dpr);
+      octx.fillStyle = '#1a1204'; octx.fillText(String(i + 1), z.x * W + 7 * dpr, z.y * H + 16 * dpr);
+      (lastBoxes[i] || []).forEach(b => {
+        octx.strokeStyle = '#ff4d4d'; octx.strokeRect(b.x * W, b.y * H, b.w * W, b.h * H);
+      });
+    });
+    if (draft) {
+      octx.strokeStyle = '#ffffff'; octx.setLineDash([6 * dpr, 4 * dpr]);
+      octx.strokeRect(draft.x * W, draft.y * H, draft.w * W, draft.h * H);
+      octx.setLineDash([]);
+    }
+  }
+
+  function rel(e) {
+    const r = overlay.getBoundingClientRect();
+    return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) };
+  }
+  let p0 = null;
+  overlay.addEventListener('pointerdown', e => { if (!drawMode) return; overlay.setPointerCapture(e.pointerId); p0 = rel(e); draft = { x: p0.x, y: p0.y, w: 0, h: 0 }; e.preventDefault(); });
+  overlay.addEventListener('pointermove', e => {
+    if (!p0) return; const p = rel(e);
+    draft = { x: Math.min(p0.x, p.x), y: Math.min(p0.y, p.y), w: Math.abs(p.x - p0.x), h: Math.abs(p.y - p0.y) };
+    drawOverlay(); e.preventDefault();
+  });
+  overlay.addEventListener('pointerup', () => {
+    if (!p0) return; p0 = null;
+    if (draft && draft.w > 0.04 && draft.h > 0.04 && S.zones.length < 2) { S.zones.push(draft); save('zones', S.zones); }
+    draft = null; drawMode = false; overlay.classList.remove('drawing');
+    drawOverlay(); setStatus();
+  });
+
+  $('drawBtn').addEventListener('click', () => {
+    drawMode = !drawMode; overlay.classList.toggle('drawing', drawMode); setStatus();
+  });
+  $('clearBtn').addEventListener('click', () => {
+    S.zones = []; save('zones', S.zones); lastBoxes = [[], []]; streak = [0, 0];
+    if (armed) { armed = false; }
+    drawOverlay(); setStatus();
+  });
+
+  // ---------- őrzés ----------
+  $('armBtn').addEventListener('click', () => {
+    armed = !armed; streak = [0, 0]; staleSince = 0; blankSince = 0; pauseUntil = 0;
+    if (armed) requestWake();
+    setStatus();
+  });
+  $('testBtn').addEventListener('click', () => {
+    if (!siren.paused) { stopSound(); $('testBtn').textContent = 'Hangteszt'; return; }
+    playSound(siren); $('testBtn').textContent = 'Teszt leállítása';
+    setTimeout(() => { if (!alarmOn) { stopSound(); $('testBtn').textContent = 'Hangteszt'; } }, 3000);
+  });
+  $('dimBtn').addEventListener('click', () => { $('dim').hidden = false; });
+  $('dim').addEventListener('click', () => { $('dim').hidden = true; });
+
+  // ---------- felismerés ----------
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  const probe = document.createElement('canvas'); probe.width = 32; probe.height = 18;
+  const pctx = probe.getContext('2d', { willReadFrequently: true });
+
+  function frameIsBlank() {
+    pctx.drawImage(video, 0, 0, 32, 18);
+    const d = pctx.getImageData(0, 0, 32, 18).data;
+    let sum = 0, sq = 0, n = d.length / 4;
+    for (let i = 0; i < d.length; i += 4) { const l = (d[i] + d[i + 1] + d[i + 2]) / 3; sum += l; sq += l * l; }
+    const mean = sum / n, sd = Math.sqrt(Math.max(0, sq / n - mean * mean));
+    return sd < 4;   // egyszínű kép: monitor kikapcsolt, kamera letakarva
+  }
+
+  async function tick() {
+    if (!model || video.readyState < 2 || !armed || alarmOn) return;
+    const now = Date.now();
+
+    // A kép megakadt vagy elsötétült → hibajelzés, mert ilyenkor nem figyel.
+    if (video.currentTime === lastVideoTime) { staleSince = staleSince || now; } else { staleSince = 0; lastVideoTime = video.currentTime; }
+    if (frameIsBlank()) { blankSince = blankSince || now; } else { blankSince = 0; }
+    if (staleSince && now - staleSince > 20000) return triggerFault('A kamerakép megállt — az app most nem figyel.');
+    if (blankSince && now - blankSince > 60000) return triggerFault('A kép egy perce üres vagy fekete — kikapcsolt a monitor, vagy elmozdult a telefon?');
+
+    if (now < pauseUntil) return;
+
+    const vw = video.videoWidth, vh = video.videoHeight;
+    for (let i = 0; i < S.zones.length; i++) {
+      const z = S.zones[i];
+      const sx = z.x * vw, sy = z.y * vh, sw = z.w * vw, sh = z.h * vh;
+      // A kis kamerakép felnagyítva megy a modellbe: így a kicsi alakokat is jobban látja.
+      const scale = Math.min(3, 640 / Math.max(sw, sh));
+      work.width = Math.max(1, Math.round(sw * scale)); work.height = Math.max(1, Math.round(sh * scale));
+      wctx.drawImage(video, sx, sy, sw, sh, 0, 0, work.width, work.height);
+      const preds = await model.detect(work, 10, S.thr);
+      const people = preds.filter(p => p.class === 'person');
+      lastBoxes[i] = people.map(p => ({
+        x: z.x + p.bbox[0] / work.width * z.w, y: z.y + p.bbox[1] / work.height * z.h,
+        w: p.bbox[2] / work.width * z.w, h: p.bbox[3] / work.height * z.h
+      }));
+      if (people.length) {
+        streak[i]++;
+        if (streak[i] >= S.hits) return triggerPerson(i, people);
+      } else streak[i] = 0;
+    }
+    $('lastCheck').textContent = 'Utolsó ellenőrzés: ' + new Date().toLocaleTimeString('hu-HU');
+  }
+
+  async function loop() {
+    try { await tick(); } catch (e) { console.error(e); }
+    drawOverlay(); setStatus(); updateDim();
+    setTimeout(loop, S.intv);
+  }
+
+  function updateDim() {
+    const t = !armed ? 'Őrzés KIKAPCSOLVA' : (Date.now() < pauseUntil ? 'Szünet' : 'Őrzés aktív');
+    $('dimText').textContent = `${t} · ${new Date().toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })} · érintsd meg`;
+  }
+
+  // ---------- riasztás ----------
+  function triggerPerson(i, people) {
+    const best = Math.max(...people.map(p => p.score));
+    wctx.lineWidth = Math.max(2, work.width / 160); wctx.strokeStyle = '#ff4d4d';
+    people.forEach(p => wctx.strokeRect(...p.bbox));
+    const snap = snapshot(work);
+    alarm('person', `Ember a(z) ${i + 1}. zónában`, snap, { zone: i + 1, score: Math.round(best * 100) });
+  }
+  function triggerFault(msg) {
+    const c = document.createElement('canvas'); c.width = 320; c.height = Math.round(320 * video.videoHeight / Math.max(1, video.videoWidth));
+    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+    alarm('fault', msg, snapshot(c), {});
+    staleSince = 0; blankSince = 0;
+  }
+  function snapshot(src) {
+    const c = document.createElement('canvas'), s = Math.min(1, 320 / src.width);
+    c.width = Math.round(src.width * s); c.height = Math.round(src.height * s);
+    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.7);
+  }
+  function alarm(kind, title, snap, extra) {
+    alarmOn = true; alarmKind = kind; streak = [0, 0];
+    $('alarmTitle').textContent = title;
+    $('alarmImg').src = snap;
+    $('falseBtn').hidden = kind !== 'person';
+    $('dim').hidden = true; $('alarm').hidden = false;
+    playSound(kind === 'person' ? siren : fault);
+    log.unshift({ t: Date.now(), kind, title, snap, ...extra, falseAlarm: false });
+    log = log.slice(0, 20); save('log', log); renderLog(); setStatus();
+  }
+  function endAlarm(markFalse) {
+    stopSound(); alarmOn = false; $('alarm').hidden = true;
+    if (markFalse && log[0]) { log[0].falseAlarm = true; save('log', log); }
+    pauseUntil = Date.now() + S.pause * 1000;
+    lastBoxes = [[], []];
+    renderLog(); setStatus(); requestWake();
+  }
+  $('stopBtn').addEventListener('click', () => endAlarm(false));
+  $('falseBtn').addEventListener('click', () => endAlarm(true));
+
+  function renderLog() {
+    const box = $('log');
+    box.querySelectorAll('.entry').forEach(n => n.remove());
+    $('logEmpty').hidden = log.length > 0;
+    for (const e of log) {
+      const div = document.createElement('div'); div.className = 'entry' + (e.falseAlarm ? ' false' : '');
+      const img = document.createElement('img'); img.src = e.snap; img.alt = '';
+      const txt = document.createElement('div');
+      const t = document.createElement('div'); t.className = 't';
+      t.textContent = new Date(e.t).toLocaleString('hu-HU', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const w = document.createElement('div'); w.className = 'what';
+      w.textContent = e.title + (e.score ? ` · ${e.score}%` : '') + (e.falseAlarm ? ' · téves' : '');
+      txt.append(t, w); div.append(img, txt); box.append(div);
+    }
+  }
+
+  // ---------- háttérbe kerülés ----------
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    requestWake();
+    if (hiddenAt && armed) {
+      const min = Math.round((Date.now() - hiddenAt) / 60000);
+      const b = $('bgBanner');
+      b.textContent = `Az app ${min < 1 ? 'kevesebb mint 1' : min} percig a háttérben volt (${new Date(hiddenAt).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' })}-tól). Ez alatt nem figyelt.`;
+      b.hidden = false;
+    }
+    hiddenAt = 0;
+    if (video.srcObject && video.paused) video.play().catch(() => {});
+  });
+
+  // ---------- beállítások ----------
+  function bindRange(id, key, fmt) {
+    const el = $(id), out = $(id + 'Out');
+    el.value = S[key]; out.textContent = fmt(S[key]);
+    el.addEventListener('input', () => { S[key] = Number(el.value); out.textContent = fmt(S[key]); save(key, S[key]); });
+  }
+  bindRange('thr', 'thr', v => Math.round(v * 100) + '%');
+  bindRange('hits', 'hits', v => v + '×');
+  bindRange('intv', 'intv', v => (v / 1000).toLocaleString('hu-HU') + ' mp');
+  bindRange('pause', 'pause', v => v + ' mp');
+})();
+</script>
+</body>
+</html>
