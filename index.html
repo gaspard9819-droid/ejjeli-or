@@ -63,6 +63,9 @@
   video { display: block; width: 100%; height: auto; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
   #overlay.drawing { pointer-events: auto; cursor: crosshair; }
+  .track { font-size: 13px; min-height: 1.3em; color: var(--muted); }
+  .track.ok { color: var(--ok); }
+  .track.bad { color: var(--danger); }
   .diag { white-space: pre-line; font: 12px/1.5 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.5em; }
   input[type=checkbox] { width: 24px; height: 24px; accent-color: var(--accent); flex: none; }
   .hint { font-size: 13px; color: var(--accent); min-height: 1.2em; }
@@ -151,6 +154,7 @@
     <canvas id="overlay"></canvas>
   </div>
   <div class="hint" id="hint"></div>
+  <div class="track" id="track"></div>
   <div class="diag" id="diag"></div>
  </div>
  <div class="col-controls stack">
@@ -327,6 +331,7 @@
       err.hidden = false; btn.disabled = false; btn.textContent = 'Kamera indítása'; return;
     }
     $('intro').hidden = true; $('app').hidden = false;
+    loadRef(); trackLoop();
     requestWake();
     resizeOverlay(); setStatus(); renderLog();
     const mb = $('modelBanner'); mb.textContent = 'Felismerő modell betöltése… (első alkalommal kb. 10–30 mp)'; mb.hidden = false;
@@ -392,6 +397,7 @@
     if (draft && draft.w > 0.04 && draft.h > 0.04 && S.zones.length < 2) {
       S.zones.push(draft); save('zones', S.zones);
       S.zonesLand = video.videoWidth > video.videoHeight; save('zonesLand', S.zonesLand);
+      makeRef();                                              // megjegyezzük, hogyan néz ki most a kamerakép
     }
     draft = null; drawMode = false; overlay.classList.remove('drawing');
     drawOverlay(); setStatus();
@@ -403,7 +409,7 @@
   $('clearBtn').addEventListener('click', () => {
     resetMotion();
     S.zones = []; save('zones', S.zones); S.zonesLand = null; save('zonesLand', null); lastBoxes = [[], []]; streak = [0, 0];
-    $('orientBanner').hidden = true;
+    $('orientBanner').hidden = true; dropRef();
     if (armed) { armed = false; }
     drawOverlay(); setStatus();
   });
@@ -424,7 +430,17 @@
     countTimer = setInterval(() => {
       n--;
       if (n > 0) { $('countNum').textContent = n; return; }
-      cancelCountdown(); setArmed(true);
+      cancelCountdown();
+      if (ref) {                                              // utolsó ellenőrzés: megvan-e még a megjegyzett kamerakép
+        const r = register(); trackMsg(r);
+        if (!r || r.score < ACCEPT) {
+          const b = $('bgBanner'); b.textContent = 'Nem indult el az őrzés: nem találom a megjegyzett kameraképet. Igazítsd a telefont, és nyomd meg újra a Rögzít gombot.'; b.hidden = false;
+          playSound(fault); setTimeout(() => { if (!alarmOn) stopSound(); }, 2500);
+          return;
+        }
+        applyReg(r);
+      }
+      setArmed(true);
       playSound(ready);          // rövid, halk jelzés: tudod, hogy elindult, anélkül hogy ránéznél
     }, 1000);
     setStatus();
@@ -459,6 +475,160 @@
       (video.videoWidth > video.videoHeight) !== S.zonesLand;
     $('orientBanner').hidden = !bad;
     return bad;
+  }
+
+  // ---------- megjegyzett kamerakép követése ----------
+  // Zóna rajzolásakor elmentünk egy kis kulcsképet. Amikor a telefont letesszük vagy igazgatjuk, a kulcskép
+  // kivágását (a zónák és a környezetük) normalizált korrelációval megkeressük az élő képen több méretben,
+  // és a zónákat oda visszük, ahol most a megjegyzett kamerakép van.
+  const REF_W = 320, ACCEPT = 0.6;            // mérve: valódi egyezés >= 0,79, teljesen más kép ~0,47
+  let ref = null;
+
+  function liveCanvas(w) {
+    const h = Math.round(w * video.videoHeight / video.videoWidth);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.imageSmoothingQuality = 'high'; x.drawImage(video, 0, 0, w, h);
+    return c;
+  }
+  function grayOf(c) {
+    const d = c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, c.width, c.height).data;
+    const g = new Float32Array(c.width * c.height);
+    for (let i = 0, k = 0; i < g.length; i++, k += 4) g[i] = d[k] * 0.3 + d[k + 1] * 0.59 + d[k + 2] * 0.11;
+    return { g, w: c.width, h: c.height };
+  }
+  function makeRef() {
+    const cv = liveCanvas(REF_W);
+    ref = { cv, zones: S.zones.map(z => ({ ...z })), land: cv.width > cv.height };
+    try { localStorage.setItem('eo_ref', JSON.stringify({ url: cv.toDataURL('image/jpeg', 0.8), zones: ref.zones, land: ref.land })); } catch {}
+  }
+  function loadRef() {
+    const r = load('ref', null); if (!r || !r.url) return;
+    const im = new Image();
+    im.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = im.width; cv.height = im.height;
+      cv.getContext('2d').drawImage(im, 0, 0);
+      ref = { cv, zones: r.zones, land: r.land };
+    };
+    im.src = r.url;
+  }
+  function dropRef() { ref = null; try { localStorage.removeItem('eo_ref'); } catch {} $('track').textContent = ''; $('track').className = 'track'; }
+
+  // A kulcskép 90 fokkal elforgatva (ha a telefont álló helyzetből fektetted le, vagy fordítva).
+  function rotateRef(r, dir) {
+    const c = document.createElement('canvas'); c.width = r.cv.height; c.height = r.cv.width;
+    const x = c.getContext('2d');
+    if (dir > 0) { x.translate(c.width, 0); x.rotate(Math.PI / 2); } else { x.translate(0, c.height); x.rotate(-Math.PI / 2); }
+    x.drawImage(r.cv, 0, 0);
+    const zones = r.zones.map(z => dir > 0 ? { x: 1 - (z.y + z.h), y: z.x, w: z.h, h: z.w } : { x: z.y, y: 1 - (z.x + z.w), w: z.h, h: z.w });
+    return { cv: c, zones };
+  }
+
+  // Sablon (a kulcskép kivágása dw×dh méretben), minden második pixellel mintavételezve, nulla átlaggal.
+  function makeTpl(cv, rx, ry, rw, rh, dw, dh, ang = 0, fill = 128) {
+    const c = document.createElement('canvas'); c.width = dw; c.height = dh;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingQuality = 'high';
+    x.fillStyle = `rgb(${fill},${fill},${fill})`; x.fillRect(0, 0, dw, dh);
+    x.translate(dw / 2, dh / 2); x.rotate(ang * Math.PI / 180);   // kis elforgatás: a telefon kissé ferdén áll
+    x.drawImage(cv, rx * cv.width, ry * cv.height, rw * cv.width, rh * cv.height, -dw / 2, -dh / 2, dw, dh);
+    const { g } = grayOf(c);
+    const cols = Math.ceil(dw / 2), rows = Math.ceil(dh / 2), n = cols * rows;
+    const tv = new Float32Array(n), ti = new Int32Array(n), tj = new Int32Array(n);
+    let sum = 0, k = 0;
+    for (let j = 0; j < dh; j += 2) for (let i = 0; i < dw; i += 2, k++) { tv[k] = g[j * dw + i]; ti[k] = i; tj[k] = j; sum += tv[k]; }
+    const mean = sum / n; let nn = 0;
+    for (let q = 0; q < n; q++) { tv[q] -= mean; nn += tv[q] * tv[q]; }
+    return { n, tv, ti, tj, dw, dh, mean, norm: Math.sqrt(nn), flat: nn / n < 16 };
+  }
+  const offsFor = (t, lw) => { const o = new Int32Array(t.n); for (let k = 0; k < t.n; k++) o[k] = t.tj[k] * lw + t.ti[k]; return o; };
+  function nccAt(L, t, offs, x0, y0) {
+    const g = L.g, base = y0 * L.w + x0, n = t.n, tv = t.tv;
+    let sum = 0, sum2 = 0, dot = 0;
+    for (let k = 0; k < n; k++) { const v = g[base + offs[k]]; sum += v; sum2 += v * v; dot += tv[k] * v; }
+    const vr = sum2 - sum * sum / n;
+    return vr / n < 16 ? 0 : dot / (t.norm * Math.sqrt(vr));
+  }
+
+  function matchVariant(v, L1, L2) {
+    if (Math.abs(v.cv.width / v.cv.height - L1.w / L1.h) > 0.03) return null;
+    let x0 = 1, y0 = 1, x1 = 0, y1 = 0;
+    for (const z of v.zones) { x0 = Math.min(x0, z.x); y0 = Math.min(y0, z.y); x1 = Math.max(x1, z.x + z.w); y1 = Math.max(y1, z.y + z.h); }
+    const mx = (x1 - x0) * 0.3, my = (y1 - y0) * 0.3;               // a sablonba a zónák környezete is bekerül
+    const rx = Math.max(0, x0 - mx), ry = Math.max(0, y0 - my), rw = Math.min(1, x1 + mx) - rx, rh = Math.min(1, y1 + my) - ry;
+    const baseW = rw * L1.w, baseH = rh * L1.h;
+    const smin = Math.max(0.4, 14 / baseW, 10 / baseH), smax = Math.min(2.6, 0.99 * L1.w / baseW, 0.99 * L1.h / baseH);
+    if (smax < smin) return null;
+    const steps = smax / smin < 1.02 ? 1 : 13;
+    let best = { score: -1 };
+    for (let i = 0; i < steps; i++) {
+      const sc = steps === 1 ? smin : smin * Math.pow(smax / smin, i / (steps - 1));
+      const dw = Math.round(baseW * sc), dh = Math.round(baseH * sc);
+      if (dw >= L1.w || dh >= L1.h || dw < 8 || dh < 8) continue;
+      const t = makeTpl(v.cv, rx, ry, rw, rh, dw, dh); if (t.flat) continue;
+      const offs = offsFor(t, L1.w);
+      for (let yy = 0; yy <= L1.h - dh; yy++) for (let xx = 0; xx <= L1.w - dw; xx++) {
+        const r = nccAt(L1, t, offs, xx, yy);
+        if (r > best.score) best = { score: r, x: xx, y: yy, sc, mean: t.mean };
+      }
+    }
+    if (best.score < 0) return null;
+    // Finomítás a kétszeres felbontású képen a legjobb találat körül, kis elforgatásokkal is.
+    let fine = { score: -1 };
+    for (const f of [0.95, 1, 1.05]) for (const ang of [-6, -3, 0, 3, 6]) {
+      const dw = Math.round(2 * baseW * best.sc * f), dh = Math.round(2 * baseH * best.sc * f);
+      if (dw >= L2.w || dh >= L2.h) continue;
+      const t = makeTpl(v.cv, rx, ry, rw, rh, dw, dh, ang, Math.round(best.mean)); if (t.flat) continue;
+      const offs = offsFor(t, L2.w);
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const xx = best.x * 2 + dx, yy = best.y * 2 + dy;
+        if (xx < 0 || yy < 0 || xx + dw > L2.w || yy + dh > L2.h) continue;
+        const r = nccAt(L2, t, offs, xx, yy);
+        if (r > fine.score) fine = { score: r, x: xx, y: yy, dw, dh, ang };
+      }
+    }
+    if (fine.score < 0) return null;
+    // A zónák sarkait a sablon közepe körül elforgatjuk és az élő képre vetítjük; a zóna a kapott téglalap befoglalója.
+    const th = fine.ang * Math.PI / 180, cs = Math.cos(th), sn = Math.sin(th), cxp = fine.x + fine.dw / 2, cyp = fine.y + fine.dh / 2;
+    const zones = v.zones.map(z => {
+      const pts = [[z.x, z.y], [z.x + z.w, z.y], [z.x, z.y + z.h], [z.x + z.w, z.y + z.h]].map(([zx, zy]) => {
+        const u = (zx - rx) / rw * fine.dw - fine.dw / 2, w = (zy - ry) / rh * fine.dh - fine.dh / 2;
+        return [(cxp + u * cs - w * sn) / L2.w, (cyp + u * sn + w * cs) / L2.h];
+      });
+      const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
+      const x = Math.max(0, Math.min(...xs)), y = Math.max(0, Math.min(...ys));
+      return { x, y, w: Math.min(1, Math.max(...xs)) - x, h: Math.min(1, Math.max(...ys)) - y };
+    });
+    return { score: fine.score, zones, scale: fine.dw / L2.w / rw };
+  }
+
+  function register() {
+    if (!ref || video.readyState < 2 || !video.videoWidth) return null;
+    const liveLand = video.videoWidth > video.videoHeight;
+    const variants = liveLand === ref.land ? [ref] : [rotateRef(ref, 1), rotateRef(ref, -1)];
+    const L1 = grayOf(liveCanvas(160)), L2 = grayOf(liveCanvas(320));
+    let best = null;
+    for (const v of variants) { const m = matchVariant(v, L1, L2); if (m && (!best || m.score > best.score)) best = m; }
+    return best && { ...best, land: liveLand };
+  }
+  function applyReg(r) {
+    S.zones = r.zones; save('zones', S.zones);
+    S.zonesLand = r.land; save('zonesLand', S.zonesLand);
+    lastBoxes = [[], []]; resetMotion(); $('orientBanner').hidden = true;
+    drawOverlay();
+  }
+  function trackMsg(r) {
+    const el = $('track'), pct = r ? Math.round(Math.max(0, r.score) * 100) : 0;
+    if (r && r.score >= ACCEPT) { el.textContent = `A megjegyzett kamerakép megvan · egyezés ${pct}%`; el.className = 'track ok'; }
+    else { el.textContent = `A megjegyzett kamerakép nem látszik · egyezés ${pct}%. Fordítsd a monitor felé a telefont.`; el.className = 'track bad'; }
+  }
+  function trackLoop() {
+    try {
+      if (ref && !armed && !drawMode && !alarmOn && !document.hidden && $('count').hidden) {
+        const r = register(); trackMsg(r);
+        if (r && r.score >= ACCEPT) applyReg(r);
+      }
+    } catch (e) { console.error(e); }
+    setTimeout(trackLoop, 1300);
   }
 
   // Mozgásérzékelés: a zónát kis szürke képre kicsinyítjük, és a lassan követett háttérhez hasonlítjuk.

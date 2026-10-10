@@ -15,6 +15,7 @@ kijelölt (kritikus) kamerakép-zónában.
 - Barátságos csengőhang; 30 mp után sűrűbben szól, ha nem állítod le
 - Külön (lefelé lépő) hibahang, ha a kép megáll vagy egy percig fekete (kikapcsolt monitor, elmozdult telefon)
 - Jobb felső sarokban **Rögzít** gomb: 5 mp visszaszámlálás (közben leteheted a telefont), utána indul az őrzés, és egy rövid jelzőhang igazolja. Ugyanez a gomb **Leállít**
+- **A megjegyzett kamerakép követése:** zóna rajzolásakor az app megjegyzi, hogyan néz ki a kamerakép. Ha utána leteszed és igazgatod a telefont (más távolság, elcsúszás, kis elforgatás, akár álló-fekvő váltás), a zónák maguktól a megjegyzett kameraképre ugranak. A **Rögzít** gomb csak akkor indít, ha a megjegyzett kamerakép megvan (egyezés legalább 60%); különben hibahangot ad, és nem indul el
 - Élő diagnosztika a kép alatt: zónánként a legjobb emberfelismerési érték és a mozgás mértéke, így látod, miért riaszt vagy miért nem
 - Kiegészítő mozgásjelzés (kikapcsolható): a zaj- és fényerő-változásra érzéketlen, pixelenként tanuló érzékelő
 - Sötét kijelző mód: fekete képernyő, a figyelés közben is megy
@@ -28,6 +29,12 @@ kijelölt (kritikus) kamerakép-zónában.
 3. Beállítások → Kijelző és fényerő → Automatikus zárolás → Soha
 4. Ne válts más appra, és ne zárd le a telefont: az iPhone ilyenkor leállítja a kamerát
 5. Ajánlott: Irányított hozzáférés (Kisegítő lehetőségek)
+
+## A követés korlátai
+
+- A zónákat egyszer újra be kell rajzolni az új verzió után: a régiekhez nincs elmentett kulcskép.
+- A követés a Rögzít megnyomásáig fut. Őrzés közben nem követ: ha a telefont éjjel megmozdítják, az app nem veszi észre (csak a kép megakadását, elfeketedését és az álló-fekvő váltást jelzi).
+- Mérés (szimuláció): más távolság, elcsúszás, 3°-os elforgatás, sötét és zajos kép, 90°-os fektetés esetén a zónák 87–99%-os átfedéssel kerültek vissza a helyükre; teljesen más képnél 47% az egyezés, ez alatt nem indul az őrzés.
 
 ## Képminőség
 
