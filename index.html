@@ -219,8 +219,8 @@
     // v3: a zónák mellé elmentjük, fekvő vagy álló képen készültek. A régi zónákat egyszer törli.
     zones: load('v', 0) >= 3 ? load('zones', []) : [],   // [{x,y,w,h}] a videókép arányában (0..1)
     zonesLand: load('v', 0) >= 3 ? load('zonesLand', null) : null,
-    // v4: alacsonyabb küszöb (mérve: rossz képminőségnél sokkal több embert talál meg), mozgásjelzés bekapcsolva.
-    thr: load('v', 0) >= 4 ? load('thr', 0.30) : 0.30,
+    // v4: alacsonyabb küszöb 0,25 (mérve: rossz képminőségnél 60 px-es embernél 3/10 helyett 10/10), mozgásjelzés bekapcsolva.
+    thr: load('v', 0) >= 4 ? load('thr', 0.25) : 0.25,
     motionOn: load('motionOn', true),
     mArea: load('mArea', 0.8),           // % : a zóna ekkora része változzon meg
     // v2: azonnali riasztás az alapértelmezés (1 találat, 0,5 mp); a régi mentett értékeket felülírja.
