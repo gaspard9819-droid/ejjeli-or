@@ -15,6 +15,8 @@ kijelölt (kritikus) kamerakép-zónában.
 - Barátságos csengőhang; 30 mp után sűrűbben szól, ha nem állítod le
 - Külön (lefelé lépő) hibahang, ha a kép megáll vagy egy percig fekete (kikapcsolt monitor, elmozdult telefon)
 - Jobb felső sarokban **Rögzít** gomb: 5 mp visszaszámlálás (közben leteheted a telefont), utána indul az őrzés, és egy rövid jelzőhang igazolja. Ugyanez a gomb **Leállít**
+- Élő diagnosztika a kép alatt: zónánként a legjobb emberfelismerési érték és a mozgás mértéke, így látod, miért riaszt vagy miért nem
+- Kiegészítő mozgásjelzés (kikapcsolható): a zaj- és fényerő-változásra érzéketlen, pixelenként tanuló érzékelő
 - Sötét kijelző mód: fekete képernyő, a figyelés közben is megy
 - Napló pillanatképekkel. A téves riasztások megjelölhetők
 - Állítható érzékenység, gyakoriság, szünet riasztás után
@@ -26,6 +28,10 @@ kijelölt (kritikus) kamerakép-zónában.
 3. Beállítások → Kijelző és fényerő → Automatikus zárolás → Soha
 4. Ne válts más appra, és ne zárd le a telefont: az iPhone ilyenkor leállítja a kamerát
 5. Ajánlott: Irányított hozzáférés (Kisegítő lehetőségek)
+
+## Képminőség
+
+A felismerés a monitor képéből dolgozik, ezért a legfontosabb a **méret**: a telefon kerüljön olyan közel, hogy a két kritikus kamerakép kitöltse a kameraképet (a monitor többi része ne legyen benne). Mérés szerint (szimulált, rossz minőségű képen) a modell akkor találja meg az embert, ha a kamerakép-csempén legalább kb. 50–60 pixel magas. 40 pixel alatt már semmilyen beállítás nem segít, ott csak a telefon közelebb vitele.
 
 ## Korlátok
 

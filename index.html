@@ -63,6 +63,8 @@
   video { display: block; width: 100%; height: auto; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
   #overlay.drawing { pointer-events: auto; cursor: crosshair; }
+  .diag { white-space: pre-line; font: 12px/1.5 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.5em; }
+  input[type=checkbox] { width: 24px; height: 24px; accent-color: var(--accent); flex: none; }
   .hint { font-size: 13px; color: var(--accent); min-height: 1.2em; }
 
   .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -149,6 +151,7 @@
     <canvas id="overlay"></canvas>
   </div>
   <div class="hint" id="hint"></div>
+  <div class="diag" id="diag"></div>
  </div>
  <div class="col-controls stack">
 
@@ -165,6 +168,9 @@
     <div class="stack">
       <div class="row"><label for="thr">Minimális biztonság<br><span class="muted small">Lejjebb: többet észrevesz, de többször tévesen riaszt</span></label><output id="thrOut"></output></div>
       <input type="range" id="thr" min="0.2" max="0.8" step="0.05">
+      <div class="row"><label for="mon">Mozgásjelzés is<br><span class="muted small">Akkor is riaszt, ha a zónában valami megmozdul, de a modell nem ismeri fel embernek (kicsi, homályos kép)</span></label><input type="checkbox" id="mon"></div>
+      <div class="row"><label for="marea">Mozgás érzékenység<br><span class="muted small">A zóna mekkora részének kell megváltoznia. Kisebb: érzékenyebb, de több téves riasztás</span></label><output id="mareaOut"></output></div>
+      <input type="range" id="marea" min="0.1" max="5" step="0.1">
       <div class="row"><label for="hits">Egymás utáni találat riasztásig<br><span class="muted small">1 = az első találatra azonnal riaszt. 2 vagy több: kevesebb téves riasztás, de lassabb</span></label><output id="hitsOut"></output></div>
       <input type="range" id="hits" min="1" max="5" step="1">
       <div class="row"><label for="intv">Ellenőrzés gyakorisága</label><output id="intvOut"></output></div>
@@ -213,13 +219,16 @@
     // v3: a zónák mellé elmentjük, fekvő vagy álló képen készültek. A régi zónákat egyszer törli.
     zones: load('v', 0) >= 3 ? load('zones', []) : [],   // [{x,y,w,h}] a videókép arányában (0..1)
     zonesLand: load('v', 0) >= 3 ? load('zonesLand', null) : null,
-    thr: load('thr', 0.45),
+    // v4: alacsonyabb küszöb (mérve: rossz képminőségnél sokkal több embert talál meg), mozgásjelzés bekapcsolva.
+    thr: load('v', 0) >= 4 ? load('thr', 0.30) : 0.30,
+    motionOn: load('motionOn', true),
+    mArea: load('mArea', 0.8),           // % : a zóna ekkora része változzon meg
     // v2: azonnali riasztás az alapértelmezés (1 találat, 0,5 mp); a régi mentett értékeket felülírja.
     hits: load('v', 0) >= 2 ? load('hits', 1) : 1,
     intv: load('v', 0) >= 2 ? load('intv', 500) : 500,
     pause: load('pause', 60),
   };
-  save('v', 3); save('zones', S.zones); save('hits', S.hits); save('intv', S.intv);
+  save('v', 4); save('thr', S.thr); save('zones', S.zones); save('hits', S.hits); save('intv', S.intv);
   let log = load('log', []);
 
   let model = null, armed = false, drawMode = false, draft = null;
@@ -392,6 +401,7 @@
     drawMode = !drawMode; overlay.classList.toggle('drawing', drawMode); setStatus();
   });
   $('clearBtn').addEventListener('click', () => {
+    resetMotion();
     S.zones = []; save('zones', S.zones); S.zonesLand = null; save('zonesLand', null); lastBoxes = [[], []]; streak = [0, 0];
     $('orientBanner').hidden = true;
     if (armed) { armed = false; }
@@ -400,7 +410,7 @@
 
   // ---------- őrzés ----------
   function setArmed(on) {
-    armed = on; streak = [0, 0]; staleSince = 0; blankSince = 0; pauseUntil = 0;
+    armed = on; streak = [0, 0]; staleSince = 0; blankSince = 0; pauseUntil = 0; resetMotion();
     if (on) { requestWake(); $('bgBanner').hidden = true; }
     setStatus();
   }
@@ -451,6 +461,46 @@
     return bad;
   }
 
+  // Mozgásérzékelés: a zónát kis szürke képre kicsinyítjük, és a lassan követett háttérhez hasonlítjuk.
+  // Ez akkor is jelez, ha az alak annyira kicsi vagy homályos, hogy a modell nem ismeri fel embernek.
+  const MW = 96, MT = 14;                                    // rács szélessége; pixelenkénti fényerő-küszöb (0-255)
+  const mc = document.createElement('canvas'), mctx = mc.getContext('2d', { willReadFrequently: true });
+  const mot = [null, null];
+  function resetMotion() { mot[0] = mot[1] = null; }
+  function motionLevel(i, sx, sy, sw, sh) {
+    const w = MW, h = Math.max(8, Math.round(MW * sh / sw));
+    if (mc.width !== w || mc.height !== h) { mc.width = w; mc.height = h; }
+    mctx.imageSmoothingQuality = 'high';
+    mctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+    const d = mctx.getImageData(0, 0, w, h).data, n = w * h, cur = new Float32Array(n);
+    for (let k = 0; k < n; k++) cur[k] = d[k * 4] * 0.3 + d[k * 4 + 1] * 0.59 + d[k * 4 + 2] * 0.11;
+    let m = mot[i];
+    if (!m || m.bg.length !== n) { mot[i] = { bg: cur, dev: new Float32Array(n).fill(3), streak: 0, age: 0 }; return 0; }
+    // A háttér és az aktuális kép közötti lineáris összefüggés (nyereség + eltolás) kiszűri az automata
+    // expozíciót és a villanykapcsolót: ami az egész képet egyformán világosítja vagy sötétíti, nem mozgás.
+    let sb = 0, sc = 0, sbb = 0, sbc = 0;
+    for (let k = 0; k < n; k++) { const bgv = m.bg[k], cv = cur[k]; sb += bgv; sc += cv; sbb += bgv * bgv; sbc += bgv * cv; }
+    const mb = sb / n, mc2 = sc / n, vb = sbb / n - mb * mb;
+    const gain = vb > 25 ? Math.max(0.5, Math.min(2, (sbc / n - mb * mc2) / vb)) : 1, off = mc2 - gain * mb;
+    // Pixelenként megtanult zaj: ahol a kép eleve "remeg" (tömörítés, moaré), ott nagyobb változás kell a jelzéshez.
+    const learning = m.age < 10; m.age++;
+    let ch = 0;
+    for (let k = 0; k < n; k++) {
+      const ad = Math.abs(cur[k] - (gain * m.bg[k] + off));
+      const changed = ad > Math.max(MT, 4 * m.dev[k]);
+      if (changed && !learning) ch++; else m.dev[k] += 0.15 * (ad - m.dev[k]);
+      m.bg[k] += 0.04 * (cur[k] - m.bg[k]);
+    }
+    return learning ? 0 : ch / n * 100;
+  }
+  const diag = [null, null];
+  function renderDiag(paused) {
+    $('diag').textContent = paused ? 'Szünet…' : S.zones.map((_, i) => {
+      const d = diag[i]; if (!d) return `${i + 1}. zóna · …`;
+      return `${i + 1}. zóna · ember ${Math.round(d.score * 100)}% (küszöb ${Math.round(S.thr * 100)}%) · mozgás ${d.motion.toFixed(1).replace('.', ',')}%`;
+    }).join('\n');
+  }
+
   async function tick() {
     if (video.readyState < 2) return;
     const turned = orientationMismatch();
@@ -464,7 +514,7 @@
     if (staleSince && now - staleSince > 20000) return triggerFault('A kamerakép megállt — az app most nem figyel.');
     if (blankSince && now - blankSince > 60000) return triggerFault('A kép egy perce üres vagy fekete — kikapcsolt a monitor, vagy elmozdult a telefon?');
 
-    if (now < pauseUntil) return;
+    if (now < pauseUntil) { renderDiag(true); return; }
 
     const vw = video.videoWidth, vh = video.videoHeight;
     for (let i = 0; i < S.zones.length; i++) {
@@ -474,8 +524,12 @@
       const scale = Math.min(3, 640 / Math.max(sw, sh));
       work.width = Math.max(1, Math.round(sw * scale)); work.height = Math.max(1, Math.round(sh * scale));
       wctx.drawImage(video, sx, sy, sw, sh, 0, 0, work.width, work.height);
-      const preds = await model.detect(work, 10, S.thr);
-      const people = preds.filter(p => p.class === 'person');
+      // Alacsony belső küszöbbel kérdezünk, hogy lássuk, mennyire "volt közel" a modell; a döntés a beállított küszöb szerint.
+      const preds = await model.detect(work, 10, 0.1);
+      const all = preds.filter(p => p.class === 'person');
+      const people = all.filter(p => p.score >= S.thr);
+      const motion = motionLevel(i, sx, sy, sw, sh);
+      diag[i] = { score: all.length ? Math.max(...all.map(p => p.score)) : 0, motion };
       lastBoxes[i] = people.map(p => ({
         x: z.x + p.bbox[0] / work.width * z.w, y: z.y + p.bbox[1] / work.height * z.h,
         w: p.bbox[2] / work.width * z.w, h: p.bbox[3] / work.height * z.h
@@ -484,7 +538,14 @@
         streak[i]++;
         if (streak[i] >= S.hits) return triggerPerson(i, people);
       } else streak[i] = 0;
+      // Mozgás: két egymás utáni ellenőrzésen át a beállított terület fölött kell lennie (villanás, zaj ellen).
+      const m = mot[i];
+      if (S.motionOn && m) {
+        m.streak = motion > S.mArea ? m.streak + 1 : 0;
+        if (m.streak >= 2) { m.streak = 0; return triggerMotion(i, motion); }
+      }
     }
+    renderDiag(false);
     $('lastCheck').textContent = 'Utolsó ellenőrzés: ' + new Date().toLocaleTimeString('hu-HU');
   }
 
@@ -506,6 +567,10 @@
     people.forEach(p => wctx.strokeRect(...p.bbox));
     const snap = snapshot(work);
     alarm('person', `Ember a(z) ${i + 1}. zónában`, snap, { zone: i + 1, score: Math.round(best * 100) });
+  }
+  function triggerMotion(i, pct) {
+    const snap = snapshot(work);                             // a work vászon az imént ennek a zónának a képét tartalmazza
+    alarm('person', `Mozgás a(z) ${i + 1}. zónában`, snap, { zone: i + 1, motion: Math.round(pct * 10) / 10 });
   }
   function triggerFault(msg) {
     const c = document.createElement('canvas'); c.width = 320; c.height = Math.round(320 * video.videoHeight / Math.max(1, video.videoWidth));
@@ -534,7 +599,7 @@
     stopSound(); alarmOn = false; $('alarm').hidden = true;
     if (markFalse && log[0]) { log[0].falseAlarm = true; save('log', log); }
     pauseUntil = Date.now() + S.pause * 1000;
-    lastBoxes = [[], []];
+    lastBoxes = [[], []]; resetMotion();
     renderLog(); setStatus(); requestWake();
   }
   $('stopBtn').addEventListener('click', () => endAlarm(false));
@@ -577,6 +642,9 @@
     el.addEventListener('input', () => { S[key] = Number(el.value); out.textContent = fmt(S[key]); save(key, S[key]); });
   }
   bindRange('thr', 'thr', v => Math.round(v * 100) + '%');
+  bindRange('marea', 'mArea', v => v.toFixed(1).replace('.', ',') + '%');
+  const mon = $('mon'); mon.checked = S.motionOn;
+  mon.addEventListener('change', () => { S.motionOn = mon.checked; save('motionOn', S.motionOn); resetMotion(); });
   bindRange('hits', 'hits', v => v + '×');
   bindRange('intv', 'intv', v => (v / 1000).toLocaleString('hu-HU') + ' mp');
   bindRange('pause', 'pause', v => v + ' mp');
