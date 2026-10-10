@@ -25,7 +25,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--sans); }
   body {
-    padding-inline: 16px;
+    padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
     padding-block: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 24px);
     max-width: 760px; margin-inline: auto;
     -webkit-user-select: none; user-select: none;
@@ -80,9 +80,25 @@
     padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px calc(env(safe-area-inset-bottom, 0px) + 20px); animation: flash 1s steps(2) infinite; }
   #alarm h3 { font-size: 30px; margin: 0; text-align: center; line-height: 1.15; }
   #alarm img { width: 100%; max-height: 45vh; object-fit: contain; background: #000; border-radius: 8px; }
+  .alarm-actions { display: flex; flex-direction: column; gap: 16px; }
   #alarm button { background: #fff; color: #000; border: 0; }
   #alarm button.ghost { background: transparent; color: #fff; border: 1px solid #fff; }
   @keyframes flash { 50% { background: #8a0000; } }
+
+  /* Fektetett telefon: balra a kamerakép (mindig látszik), jobbra a kezelőgombok. */
+  @media (orientation: landscape) and (max-height: 600px) {
+    body { max-width: none; padding-block: calc(env(safe-area-inset-top, 0px) + 8px) calc(env(safe-area-inset-bottom, 0px) + 12px); }
+    header { padding-block: 0 8px; }
+    #app { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 300px); gap: 14px; align-items: start; }
+    .col-video { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); }
+    .stage { width: fit-content; max-width: 100%; margin-inline: auto; }
+    video { width: auto; max-width: 100%; max-height: calc(100dvh - 110px); }
+    .toolbar { grid-template-columns: 1fr 1fr; }
+    #alarm { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); grid-template-rows: auto auto; align-content: center; gap: 16px 20px; }
+    #alarm img { grid-column: 1; grid-row: 1 / span 2; align-self: center; max-height: calc(100dvh - 40px); }
+    #alarm h3 { grid-column: 2; align-self: end; font-size: 24px; text-align: left; }
+    .alarm-actions { grid-column: 2; align-self: start; }
+  }
   @media (prefers-reduced-motion: reduce) { #alarm { animation: none; } }
 
   #dim { position: fixed; inset: 0; z-index: 10; background: #000; color: #3a4552; display: flex; align-items: flex-end; justify-content: center;
@@ -101,7 +117,8 @@
   <div class="card stack">
     <h2>Mielőtt elindítod</h2>
     <ol>
-      <li>Tedd a telefont <b>töltőre</b>, és rögzítsd úgy, hogy a hátlapi kamera a monitort lássa.</li>
+      <li>Tedd a telefont <b>töltőre</b>, és rögzítsd <b>fektetve</b> úgy, hogy a hátlapi kamera a monitort lássa.</li>
+      <li>Kapcsold ki az <b>elforgatás zárolását</b> (Vezérlőközpont, lakat ikon), hogy a kép is fekvő legyen. A zónákat már fektetett telefonnal rajzold be.</li>
       <li>Kapcsold ki a <b>némító kapcsolót</b>, és vedd a hangerőt <b>maximumra</b>.</li>
       <li>Beállítások → Kijelző és fényerő → Automatikus zárolás → <b>Soha</b>.</li>
       <li>Ne válts át más appra, és ne zárd le a telefont: ilyenkor az iPhone leállítja a kamerát, és az app <b>nem figyel</b>.</li>
@@ -114,14 +131,18 @@
 
 <!-- Fő nézet -->
 <main id="app" class="stack" hidden>
+ <div class="col-video stack">
   <div id="bgBanner" class="banner" hidden></div>
   <div id="modelBanner" class="banner" hidden></div>
+  <div id="orientBanner" class="banner error" hidden>A telefon elfordult a zónák berajzolása óta, ezért a zónák rossz helyen vannak. Töröld és rajzold be őket újra.</div>
 
   <div class="stage" id="stage">
     <video id="video" playsinline muted autoplay></video>
     <canvas id="overlay"></canvas>
   </div>
   <div class="hint" id="hint"></div>
+ </div>
+ <div class="col-controls stack">
 
   <div class="toolbar">
     <button id="armBtn" class="primary" disabled>Őrzés indítása</button>
@@ -149,13 +170,16 @@
     <div class="row"><h2>Napló</h2><span class="muted small" id="lastCheck"></span></div>
     <div id="log"><p class="muted small" id="logEmpty">Még nem volt riasztás. Ha lesz, itt látod a pillanatképet, és megjelölheted, ha téves volt.</p></div>
   </section>
+ </div>
 </main>
 
 <div id="alarm" hidden>
   <h3 id="alarmTitle">Ember a zónában</h3>
   <img id="alarmImg" alt="Pillanatkép a riasztás idején">
-  <button id="stopBtn" class="big">Felébredtem, leállítás</button>
-  <button id="falseBtn" class="ghost">Téves riasztás volt</button>
+  <div class="alarm-actions">
+    <button id="stopBtn" class="big">Felébredtem, leállítás</button>
+    <button id="falseBtn" class="ghost">Téves riasztás volt</button>
+  </div>
 </div>
 
 <div id="dim" hidden><div id="dimText">Őrzés aktív · érintsd meg a visszatéréshez</div></div>
@@ -172,14 +196,16 @@
   const save = (k, v) => { try { localStorage.setItem('eo_' + k, JSON.stringify(v)); } catch {} };
 
   const S = {
-    zones: load('zones', []),          // [{x,y,w,h}] a videókép arányában (0..1)
+    // v3: a zónák mellé elmentjük, fekvő vagy álló képen készültek. A régi zónákat egyszer törli.
+    zones: load('v', 0) >= 3 ? load('zones', []) : [],   // [{x,y,w,h}] a videókép arányában (0..1)
+    zonesLand: load('v', 0) >= 3 ? load('zonesLand', null) : null,
     thr: load('thr', 0.45),
     // v2: azonnali riasztás az alapértelmezés (1 találat, 0,5 mp); a régi mentett értékeket felülírja.
     hits: load('v', 0) >= 2 ? load('hits', 1) : 1,
     intv: load('v', 0) >= 2 ? load('intv', 500) : 500,
     pause: load('pause', 60),
   };
-  save('v', 2); save('hits', S.hits); save('intv', S.intv);
+  save('v', 3); save('zones', S.zones); save('hits', S.hits); save('intv', S.intv);
   let log = load('log', []);
 
   let model = null, armed = false, drawMode = false, draft = null;
@@ -248,7 +274,8 @@
     $('drawBtn').classList.toggle('active', drawMode);
     const hint = $('hint');
     if (drawMode) hint.textContent = `Húzz egy téglalapot az ujjaddal a(z) ${S.zones.length + 1}. kritikus kamerakép köré.`;
-    else if (!S.zones.length) hint.textContent = 'Jelöld ki az 1–2 kritikus kamerakép helyét: „Zóna rajzolása”.';
+    else if (!S.zones.length) hint.textContent = 'Jelöld ki az 1–2 kritikus kamerakép helyét: „Zóna rajzolása”. Két egymás melletti képhez rajzolj két külön zónát.';
+    else if (S.zones.length === 1) hint.textContent = 'Ha a mellette lévő kamerát is figyelni kell, rajzold be azt is második zónaként.';
     else hint.textContent = '';
   }
 
@@ -298,6 +325,8 @@
   }
   window.addEventListener('resize', resizeOverlay);
   video.addEventListener('loadedmetadata', resizeOverlay);
+  video.addEventListener('resize', resizeOverlay);   // elforgatáskor a kamerakép mérete is megfordul
+  if ('ResizeObserver' in window) new ResizeObserver(resizeOverlay).observe($('stage'));
 
   function drawOverlay() {
     const W = overlay.width, H = overlay.height, dpr = window.devicePixelRatio || 1;
@@ -332,7 +361,10 @@
   });
   overlay.addEventListener('pointerup', () => {
     if (!p0) return; p0 = null;
-    if (draft && draft.w > 0.04 && draft.h > 0.04 && S.zones.length < 2) { S.zones.push(draft); save('zones', S.zones); }
+    if (draft && draft.w > 0.04 && draft.h > 0.04 && S.zones.length < 2) {
+      S.zones.push(draft); save('zones', S.zones);
+      S.zonesLand = video.videoWidth > video.videoHeight; save('zonesLand', S.zonesLand);
+    }
     draft = null; drawMode = false; overlay.classList.remove('drawing');
     drawOverlay(); setStatus();
   });
@@ -341,7 +373,8 @@
     drawMode = !drawMode; overlay.classList.toggle('drawing', drawMode); setStatus();
   });
   $('clearBtn').addEventListener('click', () => {
-    S.zones = []; save('zones', S.zones); lastBoxes = [[], []]; streak = [0, 0];
+    S.zones = []; save('zones', S.zones); S.zonesLand = null; save('zonesLand', null); lastBoxes = [[], []]; streak = [0, 0];
+    $('orientBanner').hidden = true;
     if (armed) { armed = false; }
     drawOverlay(); setStatus();
   });
@@ -375,9 +408,19 @@
     return sd < 4;   // egyszínű kép: monitor kikapcsolt, kamera letakarva
   }
 
+  function orientationMismatch() {
+    const bad = S.zones.length > 0 && S.zonesLand !== null && video.videoWidth > 0 &&
+      (video.videoWidth > video.videoHeight) !== S.zonesLand;
+    $('orientBanner').hidden = !bad;
+    return bad;
+  }
+
   async function tick() {
-    if (!model || video.readyState < 2 || !armed || alarmOn) return;
+    if (video.readyState < 2) return;
+    const turned = orientationMismatch();
+    if (!model || !armed || alarmOn) return;
     const now = Date.now();
+    if (turned && now >= pauseUntil) return triggerFault('A telefon elfordult, a zónák rossz helyen vannak. Rajzold be őket újra.');
 
     // A kép megakadt vagy elsötétült → hibajelzés, mert ilyenkor nem figyel.
     if (video.currentTime === lastVideoTime) { staleSince = staleSince || now; } else { staleSince = 0; lastVideoTime = video.currentTime; }

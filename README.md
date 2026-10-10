@@ -8,7 +8,8 @@ kijelölt (kritikus) kamerakép-zónában.
 
 ## Mit tud
 
-- 1–2 zóna kijelölése ujjal a monitor képén
+- 1–2 zóna kijelölése ujjal a monitor képén (pl. két egymás melletti kamerakép)
+- Fektetett telefonra szabott elrendezés: balra a kép, jobbra a gombok
 - Emberfelismerés (TensorFlow.js, COCO-SSD) helyben, a telefonon. Kép nem megy ki sehova
 - Azonnali riasztás az első találatra, fél másodpercenkénti ellenőrzéssel (állítható)
 - Barátságos csengőhang; 30 mp után sűrűbben szól, ha nem állítod le
@@ -19,7 +20,7 @@ kijelölt (kritikus) kamerakép-zónában.
 
 ## Használat előtt
 
-1. Telefon töltőre, a hátlapi kamera a monitorra néz
+1. Telefon töltőre, **fektetve**, a hátlapi kamera a monitorra néz. Az elforgatás zárolása legyen kikapcsolva, a zónákat fektetett telefonnal rajzold be. Ha a telefon később elfordul, az app hibahanggal szól
 2. A némító kapcsoló kikapcsolva, a hangerő maximumon
 3. Beállítások → Kijelző és fényerő → Automatikus zárolás → Soha
 4. Ne válts más appra, és ne zárd le a telefont: az iPhone ilyenkor leállítja a kamerát
