@@ -14,6 +14,7 @@ kijelölt (kritikus) kamerakép-zónában.
 - Azonnali riasztás az első találatra, fél másodpercenkénti ellenőrzéssel (állítható)
 - Barátságos csengőhang; 30 mp után sűrűbben szól, ha nem állítod le
 - Külön (lefelé lépő) hibahang, ha a kép megáll vagy egy percig fekete (kikapcsolt monitor, elmozdult telefon)
+- Jobb felső sarokban **Rögzít** gomb: 5 mp visszaszámlálás (közben leteheted a telefont), utána indul az őrzés, és egy rövid jelzőhang igazolja. Ugyanez a gomb **Leállít**
 - Sötét kijelző mód: fekete képernyő, a figyelés közben is megy
 - Napló pillanatképekkel. A téves riasztások megjelölhetők
 - Állítható érzékenység, gyakoriság, szünet riasztás után
