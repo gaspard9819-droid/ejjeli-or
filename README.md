@@ -1,7 +1,7 @@
 # Éjjeli Őr
 
 iPhone-on futó webapp éjszakai recepcióhoz. A telefon hátlapi kamerájával nézi a
-biztonsági kamerák monitorát, és **hangos szirénával riaszt**, ha embert lát valamelyik
+biztonsági kamerák monitorát, és **csengőhanggal riaszt**, ha embert lát valamelyik
 kijelölt (kritikus) kamerakép-zónában.
 
 **Megnyitás:** https://gaspard9819-droid.github.io/ejjeli-or/ (Safariban)
@@ -10,8 +10,9 @@ kijelölt (kritikus) kamerakép-zónában.
 
 - 1–2 zóna kijelölése ujjal a monitor képén
 - Emberfelismerés (TensorFlow.js, COCO-SSD) helyben, a telefonon. Kép nem megy ki sehova
-- Riasztás csak 2 egymás utáni találat után (állítható), ezzel szűri a téves jelzéseket
-- Külön hibahang, ha a kép megáll vagy egy percig fekete (kikapcsolt monitor, elmozdult telefon)
+- Azonnali riasztás az első találatra, fél másodpercenkénti ellenőrzéssel (állítható)
+- Barátságos csengőhang; 30 mp után sűrűbben szól, ha nem állítod le
+- Külön (lefelé lépő) hibahang, ha a kép megáll vagy egy percig fekete (kikapcsolt monitor, elmozdult telefon)
 - Sötét kijelző mód: fekete képernyő, a figyelés közben is megy
 - Napló pillanatképekkel. A téves riasztások megjelölhetők
 - Állítható érzékenység, gyakoriság, szünet riasztás után

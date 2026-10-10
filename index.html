@@ -136,7 +136,7 @@
     <div class="stack">
       <div class="row"><label for="thr">Minimális biztonság<br><span class="muted small">Lejjebb: többet észrevesz, de többször tévesen riaszt</span></label><output id="thrOut"></output></div>
       <input type="range" id="thr" min="0.2" max="0.8" step="0.05">
-      <div class="row"><label for="hits">Egymás utáni találat riasztásig<br><span class="muted small">2 = két egymást követő ellenőrzésen is embert kell látnia</span></label><output id="hitsOut"></output></div>
+      <div class="row"><label for="hits">Egymás utáni találat riasztásig<br><span class="muted small">1 = az első találatra azonnal riaszt. 2 vagy több: kevesebb téves riasztás, de lassabb</span></label><output id="hitsOut"></output></div>
       <input type="range" id="hits" min="1" max="5" step="1">
       <div class="row"><label for="intv">Ellenőrzés gyakorisága</label><output id="intvOut"></output></div>
       <input type="range" id="intv" min="500" max="3000" step="250">
@@ -174,10 +174,12 @@
   const S = {
     zones: load('zones', []),          // [{x,y,w,h}] a videókép arányában (0..1)
     thr: load('thr', 0.45),
-    hits: load('hits', 2),
-    intv: load('intv', 1000),
+    // v2: azonnali riasztás az alapértelmezés (1 találat, 0,5 mp); a régi mentett értékeket felülírja.
+    hits: load('v', 0) >= 2 ? load('hits', 1) : 1,
+    intv: load('v', 0) >= 2 ? load('intv', 500) : 500,
     pause: load('pause', 60),
   };
+  save('v', 2); save('hits', S.hits); save('intv', S.intv);
   let log = load('log', []);
 
   let model = null, armed = false, drawMode = false, draft = null;
@@ -194,30 +196,37 @@
     v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
     v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
     w(36, 'data'); v.setUint32(40, n * 2, true);
-    let ph = 0;
-    for (let i = 0; i < n; i++) {
-      const { f, a } = fn(i / rate);
-      ph += 2 * Math.PI * f / rate;
-      const s = (Math.sign(Math.sin(ph)) * 0.55 + Math.sin(ph) * 0.4) * a;
-      v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, s)) * 32767, true);
-    }
+    for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, fn(i / rate))) * 32767, true);
     return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
   }
-  const sirenUrl = makeWav(t => ({ f: 700 + 900 * (t < 0.5 ? t * 2 : (1 - t) * 2), a: 1 }), 1);
-  const faultUrl = makeWav(t => ({ f: (t % 0.5) < 0.12 ? 520 : 390, a: (t % 0.5) < 0.3 ? 1 : 0 }), 1);
-  const siren = new Audio(sirenUrl); siren.loop = true;
-  const fault = new Audio(faultUrl); fault.loop = true;
+  // Puha, harangjátékszerű hang: gyors felfutás, lassú lecsengés, néhány felharmonikus.
+  function bell(t, f, start, decay = 3) {
+    const d = t - start;
+    if (d < 0) return 0;
+    const env = (1 - Math.exp(-d * 120)) * Math.exp(-d * decay);
+    const k = 2 * Math.PI * f * d;
+    return env * (Math.sin(k) + 0.35 * Math.sin(2 * k) + 0.1 * Math.sin(3 * k));
+  }
+  const C5 = 523.25, E5 = 659.25, G5 = 783.99, C6 = 1046.5;
+  const arpeggio = (t, at, decay) => bell(t, C5, at, decay) + bell(t, E5, at + 0.16, decay) + bell(t, G5, at + 0.32, decay) + bell(t, C6, at + 0.48, decay);
+  // Emberre: felfelé lépő dallam 2,4 mp-enként. 30 mp után sűrűbb és hangosabb, ha még nem állítottad le.
+  const chime = new Audio(makeWav(t => 0.42 * arpeggio(t, 0), 2.4)); chime.loop = true;
+  const chimeUrgent = new Audio(makeWav(t => 0.6 * arpeggio(t, 0, 6), 1.2)); chimeUrgent.loop = true;
+  // Hibára: lefelé lépő két hang, hogy ne lehessen összekeverni az emberriasztással.
+  const fault = new Audio(makeWav(t => 0.5 * (bell(t, G5, 0) + bell(t, C5, 0.35)), 2.5)); fault.loop = true;
+  const sounds = [chime, chimeUrgent, fault];
+  let escalateTimer = null;
 
   function unlockAudio() {
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
-    for (const el of [siren, fault]) {
+    for (const el of sounds) {
       el.muted = true;
       const p = el.play();
       if (p) p.then(() => { el.pause(); el.currentTime = 0; el.muted = false; }).catch(() => { el.muted = false; });
     }
   }
   function playSound(el) { stopSound(); el.currentTime = 0; el.muted = false; el.play().catch(() => {}); }
-  function stopSound() { for (const el of [siren, fault]) { el.pause(); el.currentTime = 0; } }
+  function stopSound() { clearTimeout(escalateTimer); for (const el of sounds) { el.pause(); el.currentTime = 0; } }
 
   // ---------- képernyő ébren tartása ----------
   async function requestWake() {
@@ -269,6 +278,9 @@
     try {
       await tf.ready();
       model = await cocoSsd.load({ base: 'mobilenet_v2' });
+      // Az első felismerés lassú (a GPU ekkor fordítja le a modellt): fusson le most, ne az első riasztásnál.
+      const warm = document.createElement('canvas'); warm.width = warm.height = 300;
+      await model.detect(warm);
       mb.hidden = true;
     } catch (e) {
       mb.textContent = 'A felismerő modellt nem sikerült letölteni. Ellenőrizd a netet, és töltsd újra az oldalt.';
@@ -341,9 +353,9 @@
     setStatus();
   });
   $('testBtn').addEventListener('click', () => {
-    if (!siren.paused) { stopSound(); $('testBtn').textContent = 'Hangteszt'; return; }
-    playSound(siren); $('testBtn').textContent = 'Teszt leállítása';
-    setTimeout(() => { if (!alarmOn) { stopSound(); $('testBtn').textContent = 'Hangteszt'; } }, 3000);
+    if (!chime.paused) { stopSound(); $('testBtn').textContent = 'Hangteszt'; return; }
+    playSound(chime); $('testBtn').textContent = 'Teszt leállítása';
+    setTimeout(() => { if (!alarmOn) { stopSound(); $('testBtn').textContent = 'Hangteszt'; } }, 5000);
   });
   $('dimBtn').addEventListener('click', () => { $('dim').hidden = false; });
   $('dim').addEventListener('click', () => { $('dim').hidden = true; });
@@ -434,7 +446,8 @@
     $('alarmImg').src = snap;
     $('falseBtn').hidden = kind !== 'person';
     $('dim').hidden = true; $('alarm').hidden = false;
-    playSound(kind === 'person' ? siren : fault);
+    playSound(kind === 'person' ? chime : fault);
+    if (kind === 'person') escalateTimer = setTimeout(() => { if (alarmOn) playSound(chimeUrgent); }, 30000);
     log.unshift({ t: Date.now(), kind, title, snap, ...extra, falseAlarm: false });
     log = log.slice(0, 20); save('log', log); renderLog(); setStatus();
   }
